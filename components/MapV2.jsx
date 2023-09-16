@@ -1,8 +1,14 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
-import SelectComponent from "./SelectComponent";
 import useDebounce from "./useDebounce";
-import useSWR from "swr";
+import useSWR,{mutate} from "swr";
+import { ToastContainer, toast } from "react-toastify";
+import 'react-toastify/dist/ReactToastify.css'
+import SelectDistrict from "./SelectDistrict";
+import SelectWard from "./SelectWard";
+import SelectCity from "./SelectCity";
+import Search from "./Search";
+
 const apiKey = "c6a8fb5d25f0f32c87d1469f6847388c445850643364b94e";
 
 const handlePopup = (itemProject) => {
@@ -75,7 +81,23 @@ const initial = {
 	ward: null,
 	detail: null,
 };
+
+const notifyError = (title) =>
+    toast.error(title || 'Something went wrong!', {
+        position: 'top-right',
+        autoClose: 5000,
+        hideProgressBar: false,
+        closeOnClick: true,
+        pauseOnHover: true,
+        draggable: true,
+        progress: undefined,
+        theme: 'colored',
+    })
+
+
 const fetcher = (...args) => fetch(...args).then((res) => res.json());
+
+
 export default function MapV2() {
 	const mapRef = useRef(); //lưu lại dom map
 	const [value, setValue] = useState("");
@@ -83,8 +105,11 @@ export default function MapV2() {
 	const [isFly, setIsFly] = useState(false); // trigger sự kiện fly to
 	const [levelZoom, setLevelZoom] = useState(9); //lưu level zoom
 	const [cityId, setCityId] = useState(11); // default city id = 11 (Ha Noi)
+	console.log("🚀 ~ file: MapV2.jsx:108 ~ MapV2 ~ cityId:", cityId)
 	const [districtId, setDistrictId] = useState(null); // lưu id district
+	console.log("🚀 ~ file: MapV2.jsx:110 ~ MapV2 ~ districtId:", districtId)
 	const [wardId, setWardId] = useState(null); //  lưu id ward
+	console.log("🚀 ~ file: MapV2.jsx:112 ~ MapV2 ~ wardId:", wardId)
 	const [listMarkerDistrict, setListMarkerDistrict] = useState(initial); // lưu các marker lại đê xoá
 	const [isDeleteDistrict, setIsDeleteDistrict] = useState(false); //nếu district id thay đổi thì biến thay đổi theo
 	const [isDrag, setIsDrag] = useState(false); // trigger sự kiện drag
@@ -92,8 +117,23 @@ export default function MapV2() {
 	const [dataDistrict, setDataDistrict] = useState(null);
 	const [dataMap, setDataMap] = useState(null);
 	const [dataProvinces, setDataProvinces] = useState(null); // trả về danh sách các tỉnh có dự án
+	console.log("🚀 ~ file: MapV2.jsx:121 ~ MapV2 ~ dataProvinces:", dataProvinces)
 	const [dataWard, setDataWard] = useState(null);
-	const [isClose, setIsClose] = useState(false);
+	const [titleCity, setTitleCity] = useState({
+		title:"",
+		id:null
+	})
+	const [titleDistrict, setTitleDistrict] = useState({
+		title:"Quận/huyện",
+		id:null
+	})
+	const [titleWard, setTitleWard] = useState({
+		title:"Phường/xã",
+		id:null
+	})
+
+	const [dataProject, setDataProject] = useState([])
+	console.log("🚀 ~ file: MapV2.jsx:141 ~ MapV2 ~ dataProject:", dataProject)
 
 	const {
 		data: dataSearch,
@@ -108,18 +148,13 @@ export default function MapV2() {
 			revalidateOnReconnect: false,
 		}
 	);
-	console.log("🚀 ~ file: MapV2.jsx:98 ~ MapV2 ~ dataSearch:", dataSearch);
 
 	const {
-		data: dataProject,
-		isLoading: isLoadingProject,
-		error: errorProject,
+		data: dataProjectCode,
+		isLoading: isLoadingProjectCode,
+		error: errorProjectCode,
 	} = useSWR(
-		`${process.env.NEXT_PUBLIC_API}/property?page=1&take=10${
-			cityId ? "&cityId=" + cityId : ""
-		}${districtId ? "&districtId=" + districtId : ""}${
-			wardId ? "&wardId=" + wardId : ""
-		}`,
+		`${process.env.NEXT_PUBLIC_API}/property?page=1&take=10${debounceValue ?"&q="+debounceValue:''}`,
 		fetcher,
 		{
 			revalidateIfStale: false,
@@ -128,9 +163,53 @@ export default function MapV2() {
 		}
 	);
 
+
+	useEffect(()=>{
+		if(dataSearch?.length && debounceValue){
+			if(dataSearch[0]?.boundaries?.length===1){
+				const obj1 = {
+					cityIdSearch:dataSearch[0]?.boundaries[0]?.id
+				}
+				callDataProject(obj1)
+			}
+			if(dataSearch[0]?.boundaries?.length===2){
+
+				const obj2 = {
+					districtIdSearch:dataSearch[0]?.boundaries[0]?.id,
+					cityIdSearch:dataSearch[0]?.boundaries[1]?.id
+				}
+				callDataProject(obj2)
+			}
+			if(dataSearch[0]?.boundaries?.length===3){
+				const obj3 = {
+					wardIdSearch:dataSearch[0]?.boundaries[0]?.id,
+					districtIdSearch:dataSearch[0]?.boundaries[1]?.id,
+					cityIdSearch:dataSearch[0]?.boundaries[2]?.id
+				}
+				callDataProject(obj3)
+			}
+		}
+	},[dataSearch])
 	//get danh sách các tỉnh có dự án
 	useEffect(() => {
 		if (typeof window === "undefined" || !mapRef.current) return;
+		const loadMap = () => {
+			if (!window.vietmapgl || typeof window === 'undefined') return
+				mapRef.current = new window.vietmapgl.Map({
+				container: "map",
+				style: `https://maps.vietmap.vn/mt/tm/style.json?apikey=${apiKey}`,
+				center: [105.85379875200005, 21.028354507000074], //ha noi center
+				zoom: 9,
+				pitch: 0, // góc nhìn từ trên cao nhìn xuống
+			});
+	
+			mapRef?.current?.on("zoomstart", function () {
+				setLevelZoom(mapRef?.current?.getZoom());
+			});
+			mapRef?.current?.on("dragstart", () => {
+				setIsDrag((prev) => !prev);
+			});
+		};
 		const fetchData = async () => {
 			try {
 				const res = await fetch(
@@ -272,22 +351,16 @@ export default function MapV2() {
 	}, [levelZoom, isDrag]);
 
 	//add map vào DOM, add sự kiện zoom + drag
-	const loadMap = () => {
-		mapRef.current = new vietmapgl.Map({
-			container: "map",
-			style: `https://maps.vietmap.vn/mt/tm/style.json?apikey=${apiKey}`,
-			center: [105.85379875200005, 21.028354507000074], //ha noi center
-			zoom: 9,
-			pitch: 0, // góc nhìn từ trên cao nhìn xuống
-		});
 
-		mapRef?.current?.on("zoomstart", function () {
-			setLevelZoom(mapRef?.current?.getZoom());
-		});
-		mapRef?.current?.on("dragstart", () => {
-			setIsDrag((prev) => !prev);
-		});
-	};
+	const callDataProject = async({cityIdSearch,districtIdSearch,wardIdSearch})=>{
+		const res = await fetch(`${process.env.NEXT_PUBLIC_API}/property?page=1&take=15${
+					cityIdSearch ? "&cityId=" + cityIdSearch : ""
+				}${districtIdSearch ? "&districtId=" + districtIdSearch : ""}${
+					wardIdSearch ? "&wardId=" + wardIdSearch : ""
+				}`)
+		const data = await res.json()
+		setDataProject(data)
+	}
 
 	// kiểm tra xem điểm giữa của khung hình đang là quân/huyện nào hay là phường/xã nào
 	const getLocationCurrent = async () => {
@@ -334,7 +407,8 @@ export default function MapV2() {
 	const flyMap = (
 		lat = 104.78234226958115,
 		lon = 22.920931262916405,
-		zoom = 9
+		zoom = 9,
+		time=1000
 	) => {
 		mapRef.current.flyTo({
 			center: [lat, lon],
@@ -348,7 +422,7 @@ export default function MapV2() {
 		setLevelZoom(zoom);
 		setTimeout(() => {
 			setIsFly(false);
-		}, 1000);
+		}, time);
 	};
 
 	const addMarkerItem = (listMarker) => {
@@ -377,7 +451,8 @@ export default function MapV2() {
 				divElement.textContent = e?.count;
 				divElement.setAttribute("data-marker", `${e?.id}`);
 				// Set options
-				const marker = new vietmapgl.Marker({
+				if (!window.vietmapgl || typeof window === 'undefined') return
+				const marker = new window.vietmapgl.Marker({
 					// scale: [0.5], //size of marker
 					element: divElement,
 				})
@@ -426,7 +501,8 @@ export default function MapV2() {
 				divElement.textContent = e?.count;
 				divElement.setAttribute("data-marker", `${e?.ward_id}`);
 				// Set options
-				const marker = new vietmapgl.Marker({
+				if (!window.vietmapgl || typeof window === 'undefined') return
+				const marker = new window.vietmapgl.Marker({
 					// scale: [0.5], //size of marker
 					element: divElement,
 				})
@@ -474,7 +550,8 @@ export default function MapV2() {
 				divElement.textContent = e?.count;
 				divElement.setAttribute("data-marker", `${e?.district_id}`);
 				// Set options
-				const marker = new vietmapgl.Marker({
+				if (!window.vietmapgl || typeof window === 'undefined') return
+				const marker = new window.vietmapgl.Marker({
 					// scale: [0.5], //size of marker
 					element: divElement,
 				})
@@ -503,7 +580,10 @@ export default function MapV2() {
 
 	// handle change city
 	const handleChangeCity = (id) => {
-		const itemCity = dataProvinces?.find((i) => i?.city_id == id);
+		const itemCity = dataProvinces?.find((i) => Number(i?.city_id) === Number(id));
+		if(!itemCity){
+			return notifyError("No data project in address search!")
+		}
 		//set lại cityid
 		setCityId(Number(id));
 		// khi chuyển city thì setDistrictId và setWardId về null
@@ -534,6 +614,9 @@ export default function MapV2() {
 	//handle change district
 	const handleChangeDistrict = (id) => {
 		const itemCity = dataDistrict?.find((i) => i?.district_id == id);
+		if(!itemCity){
+			return notifyError("No data project in address search!")
+		}
 		setIsDeleteDistrict(!isDeleteDistrict);
 		setWardId(null);
 		setIsFly(true);
@@ -555,7 +638,11 @@ export default function MapV2() {
 
 	//handle change ward
 	const handleChangeWard = (id) => {
+		if(!Array.isArray(dataWard)) return
 		const itemCity = dataWard?.find((i) => i?.ward_id == id);
+		if(!itemCity){
+			return notifyError("No data project in address search!")
+		}
 		//delete marker before fly to city other
 		setIsFly(true);
 		flyMap(itemCity?.ward_lng, itemCity?.ward_lat, 13.5);
@@ -571,7 +658,7 @@ export default function MapV2() {
 		}));
 	};
 
-	const handleSubmitSearch = () => {
+	const handleSubmitSearch = (e) => {
 		e.preventDefault();
 	};
 
@@ -580,12 +667,12 @@ export default function MapV2() {
 		if (e?.ref_id?.includes("CITY")) {
 			//nếu đang ở tỉnh đó và ở level zoom city thì không fly
 			if (e?.boundaries[0]?.id === cityId && !districtId && !wardId)
-				return;
-			if (e?.boundaries[0]?.id === cityId && !districtId) return;
+				return notifyError("Now, in current city!")
+			if (e?.boundaries[0]?.id === cityId && !districtId) return notifyError("Now, in current city!")
 			handleChangeCity(e?.boundaries[0]?.id);
 		}
 		if (e?.ref_id?.includes("DIST")) {
-			if (e?.boundaries[0]?.id === districtId && !wardId) return;
+			if (e?.boundaries[0]?.id === districtId && !wardId) return notifyError("Now, in current district!");
 			if (e?.boundaries[1]?.id !== cityId) {
 				setCityId(e?.boundaries[1]?.id);
 			}
@@ -593,7 +680,7 @@ export default function MapV2() {
 			handleChangeDistrict(e?.boundaries[0]?.id);
 		}
 		if (e?.ref_id?.includes("WARD")) {
-			if (e?.boundaries[0]?.id === wardId) return;
+			if (e?.boundaries[0]?.id === wardId) return notifyError("Now, in current ward!");
 			if (e?.boundaries[2]?.id !== cityId) {
 				setCityId(e?.boundaries[2]?.id);
 			}
@@ -604,6 +691,30 @@ export default function MapV2() {
 			handleChangeWard(e?.boundaries[0]?.id);
 		}
 	};
+
+	const handleSelectValueProject = (e) => {
+		setValue(e?.address?.display);
+		if(Number(e?.address?.cityId)!==cityId){
+			setCityId(Number(e?.address?.cityId))
+		}
+		if(Number(e?.address?.districtId)!==districtId){
+			setDistrictId(Number(e?.address?.districtId))
+		}
+		if(Number(e?.address?.wardId)!==wardId){
+			setWardId(Number(e?.address?.wardId))
+		}
+		// setIsSelectProject(!isSelectProject)
+		// setTimeout(() => {
+		// 	handleChangeWard(e?.address?.wardId);
+		// }, 1000);
+		flyMap(
+			Number(e?.address?.lng),
+			Number(e?.address?.lat),
+			17,
+			2000
+		)
+	}
+
 
 	const handleSearch = (e) => setValue(e?.target?.value);
 
@@ -619,103 +730,52 @@ export default function MapV2() {
 				}}
 				id="map"
 			>
-				<div
-					id="fly"
-					style={{
-						position: "absolute",
-						top: 0,
-						left: 0,
-						width: "50px",
-						height: "50px",
-						zIndex: 1000,
-						display: "flex",
-						justifyContent: "center",
-						alignItems: "center",
-						backgroundColor: "blue",
-						color: "white",
-					}}
-					onClick={() => flyMap()}
-				>
-					fly
-				</div>
 				<div className="absolute top-0 left-[50px] flex w-fit h-fit z-[1000] bg-white">
-					<div className="relative">
-						<form
-							className="flex"
-							onSubmit={handleSubmitSearch}
-							autoComplete="false"
-						>
-							<input
-								type="search"
-								value={value}
-								onChange={handleSearch}
-								onFocus={() => setIsClose(false)}
-								className="text-black border border-black border-solid outline-none"
-							/>
-
-							<button className="text-white bg-black">
-								search
-							</button>
-						</form>
-						{dataSearch && (
-							<ul
-								className={`${
-									isClose ? "hidden" : ""
-								} absolute bottom-0 left-0 translate-y-full z-[1000] bg-white text-black w-full`}
-							>
-								{dataSearch?.map((e, index) => (
-									<li
-										onClick={() => {
-											setIsClose(true);
-											handleSelectValueSearch(e);
-										}}
-										key={index}
-									>
-										{e?.address}
-									</li>
-								))}
-							</ul>
-						)}
-					</div>
-					<select
-						onChange={(e) => handleChangeCity(e?.target?.value)}
-						className="text-black"
-						name=""
-						id=""
-					>
-						{dataProvinces?.map((e, index) => (
-							<option
-								selected={e?.city_id == cityId}
-								defaultCheck={e?.city_id == cityId}
-								key={index}
-								value={e?.city_id}
-							>
-								{e?.city}
-							</option>
-						))}
-					</select>
-					{dataDistrict && (
-						<SelectComponent
+					<Search 
+						handleSubmitSearch={handleSubmitSearch}
+						value={value}
+						handleSearch={handleSearch}
+						handleSelectValueSearch={handleSelectValueSearch}
+						handleSelectValueProject={handleSelectValueProject}
+						dataSearch={dataSearch}
+						dataProject={dataProject}
+						dataProjectCode={dataProjectCode}
+					/>
+					
+					<SelectCity
+						data={dataProvinces}
+						handleChangeCity={handleChangeCity}
+						titleCity={titleCity}
+						setTitleCity={setTitleCity}
+						districtId={districtId}
+						wardId={wardId}
+						cityId={cityId}
+					/>
+					{dataDistrict?.length>0 && (
+						<SelectDistrict
 							data={dataDistrict?.filter(
 								(e) => e?.district_id != 0
 							)}
-							value={districtId}
-							setValue={setDistrictId}
-							handleFly={handleChangeDistrict}
-							initial="Quận/huyện"
+							districtId={districtId}
+							wardId={wardId}
+							setDistrictId={setDistrictId}
+							handleChangeDistrict={handleChangeDistrict}
+							titleDistrict={titleDistrict}
+							setTitleDistrict={setTitleDistrict}
 						/>
 					)}
-					<SelectComponent
+					<SelectWard
 						className={`${districtId && dataWard ? "" : "hidden"}`}
 						data={dataWard}
-						value={wardId}
-						setValue={setWardId}
-						handleFly={handleChangeWard}
-						status={"ward"}
-						initial="Phường/xã"
+						wardId={wardId}
+						setWardId={setWardId}
+						handleChangeWard={handleChangeWard}
+						titleWard={titleWard}
+						setTitleWard={setTitleWard}
 					/>
 				</div>
 			</div>
+            <ToastContainer style={{ zIndex: '999999999999999' }} />
 		</>
 	);
 }

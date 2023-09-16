@@ -3,15 +3,14 @@
 import { useEffect, useState } from "react";
 import useClickOutSide from "./useClickOutSide";
 
-export default function SelectDistrict({
+export default function SelectWard({
 	className,
 	data,
 	wardId,
-	districtId,
-	setDistrictId,
-	handleChangeDistrict,
-	titleDistrict,
-	setTitleDistrict,
+	setWardId,
+	handleChangeWard,
+	titleWard,
+	setTitleWard,
 }) {
 	const [isOpen, setIsOpen] = useState(false);
 	const [sideRef, isOutSide] = useClickOutSide();
@@ -22,26 +21,26 @@ export default function SelectDistrict({
 
 	return (
 		<div ref={sideRef} className={`${className} relative text-black w-[5vw] ml-[1vw]`}>
-			<span className="cursor-pointer" onClick={() => setIsOpen(!isOpen)}>{titleDistrict?.title}</span>
+			<span onClick={() => setIsOpen(!isOpen)}>{titleWard?.title}</span>
 			{isOpen && (
 				<div
 					className="absolute bottom-0 left-0 translate-y-[110%]"
 				>
 					{data?.map((e, index) => (
 						<div
-							className={`${!wardId && districtId === Number(e?.district_id) ?'bg-gray-300 cursor-default':'cursor-pointer'} whitespace-nowrap`}
+							className={`${wardId === Number(e?.ward_id)?'bg-gray-300 cursor-default':'cursor-pointer'} whitespace-nowrap`}
 							onClick={() => {
-								if(districtId && !wardId) return
-								setTitleDistrict({
-									title:e?.district,
-									id:e?.district_id
+								if(wardId === Number(e?.ward_id)) return
+								setTitleWard({
+									title:e?.ward,
+									id:e?.ward_id
 								});
-								setDistrictId(Number(e?.district_id));
-								handleChangeDistrict(e?.district_id);
+								setWardId(Number(e?.ward_id));
+								handleChangeWard(e?.ward_id);
 							}}
 							key={index}
 						>
-							{ e?.district + " - " + e?.district_id}
+							{e?.ward + " - " + e?.ward_id}
 						</div>
 					))}
 				</div>
